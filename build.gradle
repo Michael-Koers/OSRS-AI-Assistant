@@ -24,6 +24,8 @@ dependencies {
 
 	implementation 'dev.langchain4j:langchain4j-open-ai:0.31.0'
 	implementation 'dev.langchain4j:langchain4j:0.31.0'
+
+	testImplementation group: 'org.slf4j', name: 'slf4j-simple', version: '2.0.13'
 }
 
 group = 'com.example'
@@ -33,3 +35,5 @@ tasks.withType(JavaCompile) {
 	options.encoding = 'UTF-8'
 	options.release.set(11)
 }
+sourceCompatibility = JavaVersion.VERSION_15
+targetCompatibility = JavaVersion.VERSION_15
