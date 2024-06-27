@@ -10,10 +10,11 @@ public interface AiAssistantConfig extends Config {
     @ConfigItem(
             keyName = "model",
             name = "AI Model",
-            description = "Pick your desired AI Model"
+            description = "Pick your desired AI Model",
+            warning = "Paid models will perform better"
     )
     default Model model() {
-        return Model.CHATGPT_3_5;
+        return Model.CHATGPT4;
     }
 
     @ConfigItem(

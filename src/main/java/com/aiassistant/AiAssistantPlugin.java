@@ -7,9 +7,11 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.events.ChatMessage;
-import net.runelite.client.chat.ChatColorType;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.chat.ChatCommandManager;
 import net.runelite.client.chat.ChatMessageBuilder;
+import net.runelite.client.chat.ChatMessageManager;
+import net.runelite.client.chat.QueuedMessage;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
@@ -18,6 +20,7 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.util.Text;
 
 import javax.inject.Inject;
+import java.util.concurrent.CompletableFuture;
 
 @Slf4j
 @PluginDescriptor(
@@ -29,10 +32,16 @@ public class AiAssistantPlugin extends Plugin {
     private Client client;
 
     @Inject
+    private ConfigManager configManager;
+
+    @Inject
     private AiAssistantConfig config;
 
     @Inject
     private ChatCommandManager chatCommandManager;
+
+    @Inject
+    private ChatMessageManager chatMessageManager;
 
     private OsrsAssistant assistant;
     private static final String ASK_AI_COMMAND = "!ai";
@@ -56,8 +65,6 @@ public class AiAssistantPlugin extends Plugin {
         super.shutDown();
     }
 
-    // TODO: On log-out, empty Assistant cache
-
     @Subscribe
     protected void onConfigChanged(ConfigChanged configChanged) {
         log.info("AI Assistant config changed");
@@ -72,30 +79,35 @@ public class AiAssistantPlugin extends Plugin {
         this.assistant = buildAssistant(this.config);
     }
 
-    void interactWithAi(ChatMessage chatMessage, String message) {
+    private void interactWithAi(ChatMessage chatMessage, String message) {
         // Don't respond to other players queries
-        if (Text.sanitize(chatMessage.getName()).equalsIgnoreCase(client.getLocalPlayer().getName())) {
-            log.info("Player interacted with AI!");
+        if (!Text.sanitize(chatMessage.getName()).equalsIgnoreCase(client.getLocalPlayer().getName())) {
+            return;
+        }
 
-            String query = message.substring(ASK_AI_COMMAND.length() + 1);
+        log.info("Player interacted with AI!");
+        String query = message.substring(ASK_AI_COMMAND.length() + 1);
 
-            String response;
+        CompletableFuture<String> response = CompletableFuture.supplyAsync(() -> {
             try {
-                response = this.assistant.chat(query);
+                return this.assistant.chat(query);
             } catch (RuntimeException e) {
-                response = e.getMessage();
+                return e.getMessage();
             }
+        });
 
+        response.whenComplete((result, ex) -> {
             String chatResponse = new ChatMessageBuilder()
-                    .append(ChatColorType.HIGHLIGHT)
-                    .append("[Assistant]: ")
-                    .append(ChatColorType.NORMAL)
-                    .append(response)
+                    .append("[AI Assistant]: ")
+                    .append(result)
                     .build();
 
-            client.addChatMessage(ChatMessageType.GAMEMESSAGE, "Ai Assistant", chatResponse, "public");
-            client.refreshChat();
-        }
+            this.chatMessageManager.queue(QueuedMessage.builder()
+                    .type(ChatMessageType.GAMEMESSAGE)
+                    .runeLiteFormattedMessage(chatResponse)
+                    .build());
+            this.client.refreshChat();
+        });
     }
 
     private OsrsAssistant buildAssistant(AiAssistantConfig config) {
@@ -108,7 +120,7 @@ public class AiAssistantPlugin extends Plugin {
 
         return AiServices.builder(OsrsAssistant.class)
                 .chatLanguageModel(model)
-                .tools(new OsrsAssistantTools(this.client))
+                .tools(new OsrsAssistantTools(this.client, this.configManager))
                 .build();
     }
 }
