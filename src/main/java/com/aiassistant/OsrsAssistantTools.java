@@ -2,11 +2,15 @@ package com.aiassistant;
 
 import dev.langchain4j.agent.tool.Tool;
 import lombok.RequiredArgsConstructor;
-import net.runelite.api.Client;
-import net.runelite.api.Experience;
-import net.runelite.api.Skill;
-import net.runelite.api.World;
+import net.runelite.api.*;
+import net.runelite.api.widgets.ComponentID;
+import net.runelite.api.widgets.InterfaceID;
+import net.runelite.api.widgets.WidgetModalMode;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.game.ItemManager;
+import net.runelite.client.ui.overlay.worldmap.WorldMapPoint;
+import net.runelite.client.ui.overlay.worldmap.WorldMapPointManager;
 import org.apache.commons.text.WordUtils;
 
 import java.util.Arrays;
@@ -19,13 +23,22 @@ public class OsrsAssistantTools {
 
     private final ConfigManager configManager;
 
-    @Tool("Returns the player's combat level.")
-    public int getCombatLevel() {
+    private final ClientThread clientThread;
+
+    private final WorldMapPointManager worldMapPointManager;
+
+    private final ItemManager itemManager;
+
+    private WidgetNode openWidget;
+    private WorldMapPoint markedLocation;
+
+    @Tool("Returns the player's current combat level.")
+    public int getCurrentCombatLevel() {
         return this.client.getLocalPlayer().getCombatLevel();
     }
 
-    @Tool("Retrieve the player's level for a given skill.")
-    public int getSkillLevel(Skill skill) {
+    @Tool("Retrieve the player's current level for a given skill.")
+    public int getCurrentSkillLevel(Skill skill) {
         return this.client.getRealSkillLevel(skill);
     }
 
@@ -39,97 +52,77 @@ public class OsrsAssistantTools {
         return this.configManager.getRSProfileConfiguration("killcount", longBossName(bossName).toLowerCase(), Integer.class);
     }
 
-    @Tool("Hop to given world. Returns true if success, false if world is unknown")
-    public boolean hopWorld(int world) throws InterruptedException {
+    @Tool("Marks a certain location on the worldmap")
+    public String markLocation(Location location) {
+        if (markedLocation != null) {
+            worldMapPointManager.remove(markedLocation);
+        }
+
+        markedLocation = new LocationWorldMapPoint(location, itemManager);
+        worldMapPointManager.add(markedLocation);
+
+        client.setHintArrow(location.worldPoint);
+        return "Marked location on the map";
+    }
+
+    @Tool("Hop to given world. 1 = succes, -1 = failure, 0 = player is already on that world")
+    public int hopWorld(int world) throws InterruptedException {
+        if (this.client.getWorld() == world) {
+            return 0;
+        }
+
         // World List is only filled when player opened the World Hopper menu at least once before
         if (this.client.getWorldList() == null) {
             this.client.openWorldHopper();
+            // Apparently, if we are too quick, list isn't filled yet
             Thread.sleep(500);
         }
 
         Optional<World> hopWorld = Arrays.stream(this.client.getWorldList()).filter(w -> w.getId() == world).findFirst();
         hopWorld.ifPresent(this.client::hopToWorld);
-        return hopWorld.isPresent();
+        return hopWorld.isPresent() ? 1 : -1;
     }
 
-    /**
-     * Copied from ChatCommandsPlugin
-     * URL: https://github.com/runelite/runelite/blob/master/runelite-client/src/main/java/net/runelite/client/plugins/chatcommands/ChatCommandsPlugin.java#L2542
-     * ChatCommandsPlugin.java:2542
-     *
-     * @param skill Possibly shortened skill name
-     * @return Full skill name
-     */
-    private static String longSkillName(String skill) {
-        switch (skill.toUpperCase()) {
-            case "ATK":
-            case "ATT":
-                return net.runelite.api.Skill.ATTACK.getName();
-            case "DEF":
-                return net.runelite.api.Skill.DEFENCE.getName();
-            case "STR":
-                return net.runelite.api.Skill.STRENGTH.getName();
-            case "HEALTH":
-            case "HIT":
-            case "HITPOINT":
-            case "HP":
-                return net.runelite.api.Skill.HITPOINTS.getName();
-            case "RANGE":
-            case "RANGING":
-            case "RNG":
-                return net.runelite.api.Skill.RANGED.getName();
-            case "PRAY":
-                return net.runelite.api.Skill.PRAYER.getName();
-            case "MAG":
-            case "MAGE":
-                return net.runelite.api.Skill.MAGIC.getName();
-            case "COOK":
-                return net.runelite.api.Skill.COOKING.getName();
-            case "WC":
-            case "WOOD":
-            case "WOODCUT":
-                return net.runelite.api.Skill.WOODCUTTING.getName();
-            case "FLETCH":
-                return net.runelite.api.Skill.FLETCHING.getName();
-            case "FISH":
-                return net.runelite.api.Skill.FISHING.getName();
-            case "FM":
-            case "FIRE":
-                return net.runelite.api.Skill.FIREMAKING.getName();
-            case "CRAFT":
-                return net.runelite.api.Skill.CRAFTING.getName();
-            case "SMITH":
-                return net.runelite.api.Skill.SMITHING.getName();
-            case "MINE":
-                return net.runelite.api.Skill.MINING.getName();
-            case "HL":
-            case "HERB":
-                return net.runelite.api.Skill.HERBLORE.getName();
-            case "AGI":
-            case "AGIL":
-                return net.runelite.api.Skill.AGILITY.getName();
-            case "THIEF":
-                return net.runelite.api.Skill.THIEVING.getName();
-            case "SLAY":
-                return net.runelite.api.Skill.SLAYER.getName();
-            case "FARM":
-                return net.runelite.api.Skill.FARMING.getName();
-            case "RC":
-            case "RUNE":
-            case "RUNECRAFTING":
-                return net.runelite.api.Skill.RUNECRAFT.getName();
-            case "HUNT":
-                return net.runelite.api.Skill.HUNTER.getName();
-            case "CON":
-            case "CONSTRUCT":
-                return net.runelite.api.Skill.CONSTRUCTION.getName();
-            case "ALL":
-            case "TOTAL":
-                return "Overall";
-            default:
-                return skill;
+    @Tool("Close open window / interface, returns true if success, false if failure")
+    public boolean close() {
+        try {
+            this.clientThread.invoke(() -> {
+                this.client.closeInterface(this.openWidget, false);
+            });
+            return true;
+        } catch (Exception e) {
+            return false;
         }
     }
+
+
+    @Tool("Opens the minimap, returns true if success, false if failure")
+    public String openMinimap() {
+        try {
+            /*
+            Deze zijn het niet:
+            RESIZABLE_VIEWPORT_INTERFACE_CONTAINER
+
+            Misschien:
+            RESIZABLE_VIEWPORT_RESIZABLE_VIEWPORT_OLD_SCHOOL_BOX
+
+            Probleem: minimap is niet meer te sluiten lol
+             */
+            this.clientThread.invoke(() -> {
+                this.openWidget = this.client.openInterface(
+                        ComponentID.RESIZABLE_VIEWPORT_RESIZABLE_VIEWPORT_OLD_SCHOOL_BOX
+                        , InterfaceID.WORLD_MAP
+                        , WidgetModalMode.MODAL_NOCLICKTHROUGH);
+                client.setWidgetSelected(true);
+            });
+
+            return "Use \"!AI Close window\" to close the minimap";
+        } catch (AssertionError e) {
+            System.out.println(e.getMessage());
+            return "Failed to open minimap";
+        }
+    }
+
 
     /**
      * Copied from ChatCommandsPlugin
