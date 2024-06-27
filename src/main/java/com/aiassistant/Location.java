@@ -9,6 +9,7 @@ public enum Location {
     VARROCK(new WorldPoint(3212, 3428, 0), ItemID.VARROCK_TELEPORT),
     FALADOR(new WorldPoint(2975, 3340, 0), ItemID.FALADOR_TELEPORT);
 
+
     final WorldPoint worldPoint;
     final Integer itemID;
 

@@ -156,7 +156,7 @@ public class AiAssistantPlugin extends Plugin {
 
         return AiServices.builder(OsrsAssistant.class)
                 .chatLanguageModel(model)
-                .chatMemory(new MessageWindowChatMemory.Builder().maxMessages(10).build())
+                .chatMemory(new MessageWindowChatMemory.Builder().maxMessages(2).build())
                 .tools(
                         new OsrsAssistantTools(this.client
                                 , this.configManager
