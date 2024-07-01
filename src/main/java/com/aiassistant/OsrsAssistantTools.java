@@ -1,16 +1,19 @@
 package com.aiassistant;
 
+import com.aiassistant.model.Location;
+import com.aiassistant.model.World;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.RequiredArgsConstructor;
-import net.runelite.api.*;
-import net.runelite.api.widgets.ComponentID;
-import net.runelite.api.widgets.InterfaceID;
-import net.runelite.api.widgets.WidgetModalMode;
-import net.runelite.client.callback.ClientThread;
+import net.runelite.api.Client;
+import net.runelite.api.Experience;
+import net.runelite.api.Skill;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.game.ItemManager;
+import net.runelite.client.game.WorldService;
 import net.runelite.client.ui.overlay.worldmap.WorldMapPoint;
 import net.runelite.client.ui.overlay.worldmap.WorldMapPointManager;
+import net.runelite.http.api.worlds.WorldResult;
+import net.runelite.http.api.worlds.WorldType;
 import org.apache.commons.text.WordUtils;
 
 import java.util.Arrays;
@@ -19,17 +22,20 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class OsrsAssistantTools {
 
+    // Managers and services for interacting with the client
     private final Client client;
 
     private final ConfigManager configManager;
-
-    private final ClientThread clientThread;
 
     private final WorldMapPointManager worldMapPointManager;
 
     private final ItemManager itemManager;
 
-    private WidgetNode openWidget;
+    private final WorldService worldService;
+
+
+    // Stuff to remember
+//    private WidgetNode openWidget;
     private WorldMapPoint markedLocation;
 
     @Tool("Returns the player's current combat level.")
@@ -42,9 +48,9 @@ public class OsrsAssistantTools {
         return this.client.getRealSkillLevel(skill);
     }
 
-    @Tool("Returns the amount of XP remaining for given level in given skill.")
-    public int getXpRemaining(Skill skill, int level) {
-        return Experience.getXpForLevel(level) - this.client.getSkillExperience(skill);
+    @Tool("Returns the amount of XP remaining for desired level in given skill.")
+    public int getXpRemaining(Skill skill, int desiredLevel) {
+        return Experience.getXpForLevel(desiredLevel) - this.client.getSkillExperience(skill);
     }
 
     @Tool("Retrieves killcount for given boss")
@@ -55,6 +61,7 @@ public class OsrsAssistantTools {
     @Tool("Marks a certain location on the worldmap")
     public String markLocation(Location location) {
         if (markedLocation != null) {
+
             worldMapPointManager.remove(markedLocation);
         }
 
@@ -65,64 +72,96 @@ public class OsrsAssistantTools {
         return "Marked location on the map";
     }
 
-    @Tool("Hop to given world. 1 = succes, -1 = failure, 0 = player is already on that world")
-    public int hopWorld(int world) throws InterruptedException {
+    @Tool("Clears the marked location on the worldmap")
+    public String unmarkLocation() {
+        if (markedLocation == null) {
+            return "There was nothing marked on the map";
+        }
+
+        worldMapPointManager.remove(markedLocation);
+        client.clearHintArrow();
+        return "Marked location removed from the map";
+    }
+
+    @Tool("Finds a list of worlds according to provided criteria, returns -1 if no world was found. "
+            + "f2p indicates wether the world must be free-to-play (f2p) or members (p2p). "
+            + "amountPlayers is the amount of players in a world the user is looking for, if not provided, amount = 0")
+    public World findWorld(boolean f2p, int amountPlayers) {
+        WorldResult worlds = this.worldService.getWorlds();
+        if (worlds == null) {
+            return null;
+        }
+
+        // Search for a world according to criteria
+        Optional<World> world = worlds.getWorlds()
+                .stream()
+                // Remove dangerous worlds
+                .filter(w -> !w.getTypes().contains(WorldType.PVP))
+                .filter(w -> !w.getTypes().contains(WorldType.HIGH_RISK))
+
+                // Remove special worlds
+                .filter(w -> !w.getTypes().contains(WorldType.BETA_WORLD))
+                .filter(w -> !w.getTypes().contains(WorldType.SEASONAL))
+                .filter(w -> !w.getTypes().contains(WorldType.FRESH_START_WORLD))
+
+                .filter(w -> f2p && !w.getTypes().contains(WorldType.MEMBERS) || !f2p && w.getTypes().contains(WorldType.MEMBERS))
+                .reduce((w1, w2) -> Math.abs(w1.getPlayers() - amountPlayers) < Math.abs(w2.getPlayers() - amountPlayers) ? w1 : w2)
+                .map(World::new);
+
+        return world.orElse(null);
+    }
+
+    @Tool("Hop to given world")
+    public String hopWorld(int world) throws InterruptedException {
         if (this.client.getWorld() == world) {
-            return 0;
+            return "You are already on that world";
         }
 
         // World List is only filled when player opened the World Hopper menu at least once before
         if (this.client.getWorldList() == null) {
             this.client.openWorldHopper();
             // Apparently, if we are too quick, list isn't filled yet
-            Thread.sleep(500);
+            Thread.sleep(1000);
         }
 
-        Optional<World> hopWorld = Arrays.stream(this.client.getWorldList()).filter(w -> w.getId() == world).findFirst();
+        Optional<net.runelite.api.World> hopWorld = Arrays.stream(this.client.getWorldList())
+                .filter(w -> w.getId() == world)
+                .findFirst();
         hopWorld.ifPresent(this.client::hopToWorld);
-        return hopWorld.isPresent() ? 1 : -1;
-    }
-
-    @Tool("Close open window / interface, returns true if success, false if failure")
-    public boolean close() {
-        try {
-            this.clientThread.invoke(() -> {
-                this.client.closeInterface(this.openWidget, false);
-            });
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
+        return hopWorld.isPresent() ? String.format("Successfully hopped to world %s", hopWorld.get().getId())
+                : String.format("Unable to hop to world %s", world);
     }
 
 
-    @Tool("Opens the minimap, returns true if success, false if failure")
-    public String openMinimap() {
-        try {
-            /*
-            Deze zijn het niet:
-            RESIZABLE_VIEWPORT_INTERFACE_CONTAINER
+    // DISABLED: opening the worldmap via client doesn't allow user to close it manually, requires another AI prompt.
+//    @Tool("Opens the minimap, returns true if success, false if failure")
+//    public String openMinimap() {
+//        try {
+//            this.clientThread.invoke(() ->
+//                    this.openWidget = this.client.openInterface(
+//                            ComponentID.RESIZABLE_VIEWPORT_RESIZABLE_VIEWPORT_OLD_SCHOOL_BOX
+//                            , InterfaceID.WORLD_MAP
+//                            , WidgetModalMode.MODAL_NOCLICKTHROUGH));
+//
+//            return "Use \"!AI Close window\" to close the minimap";
+//        } catch (AssertionError e) {
+//            System.out.println(e.getMessage());
+//            return "Failed to open minimap";
+//        }
+//    }
 
-            Misschien:
-            RESIZABLE_VIEWPORT_RESIZABLE_VIEWPORT_OLD_SCHOOL_BOX
-
-            Probleem: minimap is niet meer te sluiten lol
-             */
-            this.clientThread.invoke(() -> {
-                this.openWidget = this.client.openInterface(
-                        ComponentID.RESIZABLE_VIEWPORT_RESIZABLE_VIEWPORT_OLD_SCHOOL_BOX
-                        , InterfaceID.WORLD_MAP
-                        , WidgetModalMode.MODAL_NOCLICKTHROUGH);
-                client.setWidgetSelected(true);
-            });
-
-            return "Use \"!AI Close window\" to close the minimap";
-        } catch (AssertionError e) {
-            System.out.println(e.getMessage());
-            return "Failed to open minimap";
-        }
-    }
-
+    // DISABLED: opening the worldmap via client doesn't allow user to close it manually, requires another AI prompt.
+//    @Tool("Close open window / interface, returns true if success, false if failure")
+//    public boolean close() {
+//        try {
+//            this.clientThread.invoke(() -> {
+//                this.client.closeInterface(this.openWidget, false);
+//            });
+//            return true;
+//        } catch (Exception e) {
+//            return false;
+//        }
+//    }
 
     /**
      * Copied from ChatCommandsPlugin

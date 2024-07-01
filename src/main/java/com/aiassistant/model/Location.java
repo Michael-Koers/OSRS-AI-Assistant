@@ -1,4 +1,4 @@
-package com.aiassistant;
+package com.aiassistant.model;
 
 import net.runelite.api.ItemID;
 import net.runelite.api.coords.WorldPoint;
@@ -10,8 +10,8 @@ public enum Location {
     FALADOR(new WorldPoint(2975, 3340, 0), ItemID.FALADOR_TELEPORT);
 
 
-    final WorldPoint worldPoint;
-    final Integer itemID;
+    final public WorldPoint worldPoint;
+    final public Integer itemID;
 
     Location(WorldPoint wp, int itemID) {
         this.worldPoint = wp;

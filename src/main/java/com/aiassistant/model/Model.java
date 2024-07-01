@@ -1,4 +1,4 @@
-package com.aiassistant;
+package com.aiassistant.model;
 
 import dev.langchain4j.model.openai.OpenAiChatModelName;
 

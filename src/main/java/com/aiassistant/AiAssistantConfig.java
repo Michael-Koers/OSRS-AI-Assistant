@@ -1,5 +1,6 @@
 package com.aiassistant;
 
+import com.aiassistant.model.Model;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;

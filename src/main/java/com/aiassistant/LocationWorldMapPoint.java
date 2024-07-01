@@ -1,6 +1,6 @@
 package com.aiassistant;
 
-import net.runelite.api.ItemID;
+import com.aiassistant.model.Location;
 import net.runelite.api.Point;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.overlay.worldmap.WorldMapPoint;

@@ -5,7 +5,7 @@
         </encoder>
     </appender>
     <!-- configure debug level packages here -->
-    <logger name="my.plugin.package.here" level="DEBUG"/>
+    <logger name="com.aiassistant" level="DEBUG"/>
     <root level="DEBUG">
         <appender-ref ref="STDOUT"/>
     </root>

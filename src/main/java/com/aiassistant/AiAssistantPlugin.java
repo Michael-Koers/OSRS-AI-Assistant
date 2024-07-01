@@ -1,7 +1,7 @@
 package com.aiassistant;
 
+import com.aiassistant.model.Location;
 import com.google.inject.Provides;
-import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.service.AiServices;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +17,7 @@ import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.game.ItemManager;
+import net.runelite.client.game.WorldService;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.overlay.worldmap.WorldMapPointManager;
@@ -33,9 +34,6 @@ public class AiAssistantPlugin extends Plugin {
 
     @Inject
     private Client client;
-
-    @Inject
-    private ClientThread clientThread;
 
     @Inject
     private ConfigManager configManager;
@@ -55,9 +53,14 @@ public class AiAssistantPlugin extends Plugin {
     @Inject
     private ItemManager itemManager;
 
+    @Inject
+    private WorldService worldService;
+
     private OsrsAssistant assistant;
     private static final String ASK_AI_COMMAND = "!ai";
-    private static final String FAKE_COMMAND = "!fake";
+
+    // For testing purposes, to test effectiveness of tools without having to use AI and thus no costs
+    private static final String FAKE_COMMAND = "!fakeai";
 
     private OsrsAssistantTools tools;
 
@@ -69,9 +72,9 @@ public class AiAssistantPlugin extends Plugin {
     @Override
     protected void startUp() {
         log.info("Starting up model {}", config.model());
-//        this.assistant = buildAssistant(this.config);
+        this.assistant = buildAssistant(this.config);
 
-//        this.chatCommandManager.registerCommand(ASK_AI_COMMAND, this::interactWithAi);
+        this.chatCommandManager.registerCommand(ASK_AI_COMMAND, this::interactWithAi);
         this.chatCommandManager.registerCommand(FAKE_COMMAND, this::interactFakeAi);
     }
 
@@ -79,17 +82,21 @@ public class AiAssistantPlugin extends Plugin {
         if (this.tools == null) {
             this.tools = new OsrsAssistantTools(this.client
                     , this.configManager
-                    , this.clientThread
                     , this.worldMapPointManager
-                    , this.itemManager);
+                    , this.itemManager
+                    , this.worldService);
         }
 
         String cmd = s.substring(FAKE_COMMAND.length() + 1);
 
         // "hard-code" connection between methods and tools
         if (cmd.startsWith("mark")) {
-            String location = cmd.substring("mark".length()+1);
-            this.tools.markLocation(Location.valueOf(location.toUpperCase()));
+            String mark = cmd.substring("mark".length() + 1);
+            this.tools.markLocation(Location.valueOf(mark.toUpperCase()));
+        } else if (cmd.startsWith("unmark")) {
+            this.tools.unmarkLocation();
+        } else if (cmd.startsWith("kc")) {
+            this.tools.getBossKillcount(cmd.substring("kc".length() + 1));
         }
     }
 
@@ -156,13 +163,14 @@ public class AiAssistantPlugin extends Plugin {
 
         return AiServices.builder(OsrsAssistant.class)
                 .chatLanguageModel(model)
-                .chatMemory(new MessageWindowChatMemory.Builder().maxMessages(2).build())
+                // Chatmemory is a horrible idea, as this makes using the assistant quickly very expensive
+//                .chatMemory(new MessageWindowChatMemory.Builder().maxMessages(2).build())
                 .tools(
                         new OsrsAssistantTools(this.client
                                 , this.configManager
-                                , this.clientThread
                                 , this.worldMapPointManager
-                                , this.itemManager))
+                                , this.itemManager
+                                , this.worldService))
                 .build();
     }
 }
