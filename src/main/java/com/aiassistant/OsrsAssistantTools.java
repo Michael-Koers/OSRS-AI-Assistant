@@ -61,7 +61,6 @@ public class OsrsAssistantTools {
     @Tool("Marks a certain location on the worldmap")
     public String markLocation(Location location) {
         if (markedLocation != null) {
-
             worldMapPointManager.remove(markedLocation);
         }
 

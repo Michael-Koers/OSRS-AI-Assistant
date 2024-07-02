@@ -10,8 +10,8 @@ public enum Location {
     FALADOR(new WorldPoint(2975, 3340, 0), ItemID.FALADOR_TELEPORT);
 
 
-    final public WorldPoint worldPoint;
-    final public Integer itemID;
+    public final WorldPoint worldPoint;
+    public final Integer itemID;
 
     Location(WorldPoint wp, int itemID) {
         this.worldPoint = wp;
